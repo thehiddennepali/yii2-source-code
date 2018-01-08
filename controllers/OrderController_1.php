@@ -1,0 +1,342 @@
+<?php
+namespace merchant\controllers;
+use merchant\components\MerchantController;
+use Yii;
+use common\models\SingleOrder;
+use common\models\GroupOrder;
+use common\models\Order;
+use frontend\components\SingleScheduleHelper;
+use \yii\helpers\Html;
+
+class OrderController extends MerchantController
+{
+
+
+    public function actionAdd()
+    {
+        $this->layout = '';
+        if (isset($_POST['SingleOrder']['id']) && $_POST['SingleOrder']['id']) {
+            $model = $this->loadModelSingle($_POST['SingleOrder']['id']);
+        } else
+            $model = new SingleOrder;
+        if (isset($_POST['SingleOrder'])) {
+            $model->attributes = $_POST['SingleOrder'];
+            $model->order_time = $model->order_date . ' ' . $model->free_time_list;//($model->free_time?$model->free_time:$model->free_time_list);
+
+            $model->price = $model->category->price;
+            if($model->addons_list)
+            foreach($model->addons_list as $val){
+                $m = \common\models\Addon::findOne($val);
+                $model->price += $m->price;
+            }
+            
+            $model->addons = $model->addons_list?$model->addons_list:[];
+            
+
+            if ($model->save()) {
+                $response = [
+                    'id' => $model->id,
+                    'staff_id' => $model->staff_id,
+                    'merchant_id' => Yii::$app->user->id,
+                    'title' => $model->client_name,
+                    'start' => date('Y-m-d\TH:i:s', strtotime($model->order_time)),
+                    'end' => date('Y-m-d\TH:i:s', strtotime("+{$model->category->time_in_minutes} minutes", strtotime($model->order_time))),
+                    'url' => 'order/update-isnst/' . $model->id,
+                    'backgroundColor' => $model->category->color,
+                ];
+                echo json_encode($response);
+                Yii::$app->end();
+            } else {
+                d($model->getErrors());
+            }
+
+        }
+    }
+
+    /**
+     * Returns the data model based on the primary key given in the GET variable.
+     * If the data model is not found, an HTTP exception will be raised.
+     * @param integer the ID of the model to be loaded
+     */
+    public function loadModel($id)
+    {
+        $model = Order::findOne($id);
+        if ($model === null)
+            throw new CHttpException(404, 'The requested page does not exist.');
+        return $model;
+    }
+
+    public function loadModelSingle($id)
+    {
+        $model = SingleOrder::findOne($id);
+        if ($model === null)
+            throw new CHttpException(404, 'The requested page does not exist.');
+        return $model;
+    }
+
+    public function loadModelGroup($id)
+    {
+        $model = GroupOrder::findOne($id);
+        if ($model === null)
+            throw new CHttpException(404, 'The requested page does not exist.');
+        return $model;
+    }
+
+    public function actionGroupAdd()
+    {
+        $this->layout = '';
+        if (isset($_POST['GroupOrder']['id']) && $_POST['GroupOrder']['id']) {
+            $model = $this->loadModelGroup($_POST['GroupOrder']['id']);
+        } else
+        $model = new GroupOrder();
+        if (isset($_POST['GroupOrder'])) {
+            $model->attributes = $_POST['GroupOrder'];
+            $model->staff_id = $model->category->staff_id;
+            $model->price = $model->category->price;
+
+            if($model->addons_list)
+            foreach($model->addons_list as $val){
+                $m = Addon::model()->findByPk($val);
+                $model->price += $m->price;
+            }
+
+            $model->addons = $model->addons_list?$model->addons_list:[];
+
+            if ($model->save()) {
+                $response = [
+                    'id' => 'g-' . strtotime($model->order_time). $model->category_id,
+                    'title' => $model->category->title . ' (' . date('H:i',strtotime($model->order_time)) . ') left:' . ($model->category->group_people - GroupOrder::countByDate($model->order_time, $model->category_id)),
+                    'start' => date('Y-m-d\TH:i:s', strtotime($model->order_time)),
+                    'end' => date('Y-m-d\TH:i:s', strtotime("+{$model->category->time_in_minutes} minutes", strtotime($model->order_time))),
+                    'url' => 'tableBooking/getGroupOrders/id/' . $model->category_id . '/date_id/' . strtotime($model->order_time),
+                    'backgroundColor' => $model->category->color,
+                    'staff_id' => $model->staff_id,
+                    'merchant_id' => Yii::$app->user->id,
+
+                ];
+                echo CJSON::encode($response);
+
+                 Yii::$app->end();
+            } else {
+                d($model->getErrors());
+            }
+
+        }
+    }
+
+    /**
+     * Creates a new model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     */
+    public function actionCreate()
+    {
+        if (!Yii::$app->user->role) $this->redirect(array('dashboard/index'));
+        $model = new Order;
+
+// Uncomment the following line if AJAX validation is needed
+// $this->performAjaxValidation($model);
+
+        if (isset($_POST['Order'])) {
+            $model->attributes = $_POST['Order'];
+            if ($model->save())
+               return $this->redirect(array('index'));
+        }
+
+        return $this->render('create', array(
+            'model' => $model,
+        ));
+    }
+
+    /**
+     * Updates a particular model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id the ID of the model to be updated
+     */
+    public function actionUpdate($id)
+    {
+        if (!Yii::$app->user->role) return $this->redirect(array('dashboard/index'));
+        $model = $this->loadModel($id);
+        if ($model->merchant_id != Yii::$app->user->id)
+            return $this->redirect(array('index'));
+// Uncomment the following line if AJAX validation is needed
+// $this->performAjaxValidation($model);
+
+        if (isset($_POST['Order'])) {
+            $model->attributes = $_POST['Order'];
+            if ($model->save())
+               return $this->redirect(array('index'));
+        }
+
+        return $this->render('update', array(
+            'model' => $model,
+        ));
+    }
+
+    /**
+     * Deletes a particular model.
+     * If deletion is successful, the browser will be redirected to the 'admin' page.
+     * @param integer $id the ID of the model to be deleted
+     */
+    public function actionDelete($id)
+    {
+        // if(!Yii::$app->user->role)    throw new CHttpException(400, 'Invalid request. Please do not repeat this request again.');
+        if (Yii::$app->request->isPostRequest) {
+            // we only allow deletion via POST request
+            $this->loadModel($id)->delete();
+
+        } else
+            throw new CHttpException(400, 'Invalid request. Please do not repeat this request again.');
+    }
+
+
+    public function actionDeleteSingleOrder($id)
+    {
+        // if(!Yii::$app->user->role)    throw new CHttpException(400, 'Invalid request. Please do not repeat this request again.');
+        if (Yii::$app->request->isPostRequest) {
+            // we only allow deletion via POST request
+            $model = $this->loadModelSingle($id);
+            $model->remove();
+            $response = [
+                'staff_id' => $model->staff_id,
+                'merchant_id' => Yii::$app->user->id,
+
+            ];
+            echo CJSON::encode($response);
+        } else
+            throw new CHttpException(400, 'Invalid request. Please do not repeat this request again.');
+    }
+
+    /**
+     * Manages all models.
+     */
+    public function actionIndex()
+    {
+        if (!Yii::$app->user->role) return $this->redirect(array('dashboard/index'));
+        $model = new Order('search');
+        $model->unsetAttributes();  // clear any default values
+        if (isset($_GET['Order']))
+            return $model->attributes = $_GET['Order'];
+
+        return $this->render('admin', array(
+            'model' => $model,
+        ));
+    }
+
+    public function actionGetFreeStaff()
+    {
+
+        if (isset($_POST['time_val']) && $_POST['time_val'] && isset($_POST['date_val']) && $_POST['date_val']) {
+
+            $d = $_POST['date_val'];
+            $t = $_POST['time_val'];
+            $m = $_POST['min_val'];
+            $c = $_POST['cat'];
+            $u = $_POST['update'];
+
+            if (\common\extensions\SingleScheduleHelper::isMerchantWork($d, $t, $m)) {
+                
+                $staffs = \common\models\Staff::find()
+                        ->joinWith('staff_has_category')
+                    ->where(['is_active' => 1,
+                        'merchant_id' =>  Yii::$app->user->id,
+                        'staff_has_category.category_id'=>$c])
+                    ->all();
+                $data = [];
+
+                foreach ($staffs as $staff) {
+                    
+                    if (\common\extensions\SingleScheduleHelper::isStaffWork($d, $t, $m, $staff, $u))
+                        $data[] = $staff;
+                }
+
+                $data = \yii\helpers\ArrayHelper::map($data, 'id', 'name');
+                if ($data) {
+                    echo Html::tag('option',Html::encode('select'),
+                        array('value' => ''));
+                    foreach ($data as $value => $name) {
+                        echo Html::tag('option',Html::encode($name),
+                            array('value' => $value));
+                    }
+                } else {
+                    echo Html::tag('option',Html::encode('No staff for this time'),
+                        array('value' => ''));
+                }
+
+            } else {
+                echo Html::tag('option',Html::encode('this day is free'),
+                    array('value' => ''), true);
+            }
+
+            Yii::$app->end();
+        }
+    }
+
+    public function actionUpdateInst($id)
+    {
+        $model = SingleOrder::findOne($id);
+
+        $res = [
+            'id' => $model->id,
+            'name' => $model->client_name,
+            'phone' => $model->client_phone,
+            'email' => $model->client_email,
+            'date' => date('Y-m-d', strtotime($model->order_time)),
+            'time' => '<option selected value="' . date('H:i', strtotime($model->order_time)) . '">' . date('H:i', strtotime($model->order_time)) . '</option>',
+            'staff_id' => $model->staff_id,
+            'staff' => $model->staff_id?'<option selected value="' . $model->staff_id . '">' . $model->staff->name . '</option>':'',
+            'minimum' => $model->category->time_in_minutes,
+            'price' => $model->price,
+            'cat_price' => $model->category->price,
+            'add_ons'=>$this->renderPartial('_addons_checboxlist', ['model' => $model], true),
+            'cat' => $model->category_id,
+            'merchant_id' => Yii::$app->user->id,
+            'time_sum' => $model->getOrderTimeLength()
+        ];
+        echo json_encode($res);
+        Yii::$app->end();
+    }
+
+    /**
+     * Performs the AJAX validation.
+     * @param CModel the model to be validated
+     */
+    protected function performAjaxValidation($model)
+    {
+        if (isset($_POST['ajax']) && $_POST['ajax'] === 'order-form') {
+            echo CActiveForm::validate($model);
+            Yii::$app->end();
+        }
+    }
+
+    public function actionGetEvents($id){
+        
+        if (!isset($_GET['start']) || !isset($_GET['end'])) {
+            die("Please provide a date range.");
+        }
+
+
+        $range_start = $_GET['start'].' 00:00:00';
+        $range_end = $_GET['end'].' 00:00:00';
+        echo \common\extensions\SingleScheduleHelper::getStaffOrders($id,$range_start,$range_end);
+        Yii::$app->end();
+    }
+
+    public function actionGetGroupOrder($id){
+        $model = GroupOrder::model()->findByPk($id);
+        $res = [
+            'id' => $model->id,
+            'name' => $model->client_name,
+            'phone' => $model->client_phone,
+            'email' => $model->client_email,
+            'date' => $model->order_time,
+            'more_info' => $model->more_info,
+            'cat' => $model->category_id,
+            'price' => $model->price,
+            'cat_price' => $model->category->price,
+            'add_ons' => CHtml::listData($model->addons,'id','id'),
+        ];
+        echo CJSON::encode($res);
+        Yii::$app->end();
+    }
+
+}
